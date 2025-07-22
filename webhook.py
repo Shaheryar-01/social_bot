@@ -1,4 +1,4 @@
-# Updated webhook.py - CNIC-based authentication with account selection + EXIT functionality
+# Updated webhook.py - Natural AI responses with last 4 digit account selection
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 import httpx
@@ -14,6 +14,7 @@ from state import (
 import time
 import logging
 from datetime import datetime
+from ai_agent import BankingAIAgent
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -26,116 +27,8 @@ PAGE_ACCESS_TOKEN = "EAAOqZBb1DZCWYBPGiZCdRaVk6KrTAiQYclW4ZCZC9e8FiC4EqdOU0zN2gL
 
 BACKEND_URL = "http://localhost:8000"
 
-class ProfessionalResponseFormatter:
-    """Handles professional, warm response formatting for Sage banking assistant."""
-    
-    def __init__(self):
-        self.assistant_name = "Sage"
-        
-    def get_time_of_day_greeting(self):
-        """Get appropriate greeting based on time of day."""
-        hour = datetime.now().hour
-        if 5 <= hour < 12:
-            return "Good morning"
-        elif 12 <= hour < 17:
-            return "Good afternoon"
-        elif 17 <= hour < 21:
-            return "Good evening"
-        else:
-            return "Hello"
-
-# Initialize formatter
-response_formatter = ProfessionalResponseFormatter()
-
-def get_welcome_message() -> str:
-    """Welcome message for new users."""
-    time_greeting = response_formatter.get_time_of_day_greeting()
-    
-    return f"""{time_greeting}! Welcome to Sage, your personal banking assistant. 🏦✨
-
-I'm here to help you manage your banking needs securely and efficiently.
-
-To get started, I'll need to verify your identity using your CNIC (National Identity Card number).
-
-**Please enter your CNIC in this format:**
-42501-1234567-8
-
-Once verified, you'll be able to:
-💰 Check account balances
-📊 Analyze spending patterns  
-📝 View transaction history
-💸 Transfer money securely
-🤖 Have natural conversations about your finances
-
-Please share your CNIC to begin!"""
-
-def get_session_terminated_message() -> str:
-    """Session termination message."""
-    return """🔐 **Session Terminated**
-
-Your banking session has been safely ended for security.
-
-To start a new session, please provide your CNIC number in the format: 12345-1234567-1
-
----
-*Type 'exit' anytime to end your session*"""
-
-def get_account_selection_message(name: str, accounts: list) -> str:
-    """Account selection message after CNIC verification."""
-    
-    accounts_text = ""
-    for i, account in enumerate(accounts, 1):
-        # Format account number for display (show last 4 digits)
-        formatted_account = f"***-***-{account[-4:]}"
-        accounts_text += f"**{i}.** Account {formatted_account}\n"
-    
-    return f"""Great news, {name}! ✅ Your CNIC has been verified successfully.
-
-I found {len(accounts)} accounts associated with your CNIC. Please select which account you'd like to access:
-
-{accounts_text}
-
-**To select an account, simply reply with the number (1 or 2).**
-
-Once you select an account, I'll remember our entire conversation and you can ask me questions like:
-• "What's my current balance?"
-• "Show me last month's spending"
-• "Transfer 5000 PKR to Ahmed"
-
-**Security:** Type 'exit' anytime to safely end your session.
-
-Which account would you like to access?"""
-
-def get_account_confirmed_message(name: str, account: str) -> str:
-    """Account selection confirmation message."""
-    time_greeting = response_formatter.get_time_of_day_greeting()
-    formatted_account = f"***-***-{account[-4:]}"
-    
-    return f"""Perfect! ✅ Account {formatted_account} selected successfully.
-
-{time_greeting}, {name}! I'm now ready to assist you with your banking needs. 
-
-I can help you with:
-
-💰 **Account Information**
-• Check your current balance
-• Review recent account activity
-
-📊 **Financial Analysis** 
-• Analyze your spending patterns
-• Break down expenses by category
-• Track spending trends over time
-
-📝 **Transaction Services**
-• View your transaction history
-• Search and filter transactions
-• Transfer money securely
-
-I'm designed to understand context and remember our conversation, so you can have natural conversations with me. For example, you can ask "How much did I spend last month?" and then follow up with "from this, how much on food?"
-
-**Security:** Type 'exit' anytime to safely end your banking session.
-
-What would you like to know about your account today?"""
+# Initialize AI Agent for natural responses
+ai_agent = BankingAIAgent()
 
 @app.get("/webhook")
 async def webhook(request: Request):
@@ -185,7 +78,7 @@ async def receive_message(request: Request):
 user_last_message_time = {}
 
 async def process_user_message(sender_id: str, user_message: str) -> str:
-    """Process user message with CNIC-based authentication flow + EXIT command."""
+    """Process user message with CNIC-based authentication flow using AI agent responses."""
     
     current_time = time.time()
     
@@ -203,6 +96,11 @@ async def process_user_message(sender_id: str, user_message: str) -> str:
             "sender_id": sender_id
         })
         
+        # Get user info for personalized goodbye
+        user_info = get_user_account_info(sender_id)
+        first_name = user_info.get("name", "").split()[0] if user_info.get("name") else ""
+        account_number = user_info.get("account_number", "")
+        
         # Clear user session completely
         clear_user_state(sender_id)
         
@@ -211,7 +109,8 @@ async def process_user_message(sender_id: str, user_message: str) -> str:
             "sender_id": sender_id
         })
         
-        return get_session_terminated_message()
+        # Use AI agent for natural session end response
+        return await ai_agent.handle_session_end(account_number, first_name)
 
     # Get current verification stage
     verification_stage = get_user_verification_stage(sender_id)
@@ -234,27 +133,19 @@ async def process_user_message(sender_id: str, user_message: str) -> str:
         return await handle_banking_queries(sender_id, user_message)
     
     else:
-        # Fallback to welcome message
-        return get_welcome_message()
+        # Fallback to AI agent session start
+        return await ai_agent.handle_session_start()
 
 async def handle_cnic_verification(sender_id: str, user_message: str) -> str:
-    """Handle CNIC verification step."""
+    """Handle CNIC verification step using AI agent responses."""
     
     # Check if message looks like a CNIC
-    cnic_pattern = r'^\d{5}-\d{7}-\d$'  # Fixed: Added missing closing quote
+    cnic_pattern = r'^\d{5}-\d{7}-\d$'
     user_message_clean = user_message.strip()
     
     if not re.match(cnic_pattern, user_message_clean):
-        return """Please enter a valid CNIC number in the correct format:
-
-**Format:** 42501-1234567-8
-
-Your CNIC should be:
-• 5 digits, then dash (-)
-• 7 digits, then dash (-)  
-• 1 digit
-
-Please try again with your complete CNIC number."""
+        # Use AI agent for natural invalid format response
+        return await ai_agent.handle_invalid_cnic_format(user_message_clean)
     
     try:
         # Verify CNIC with backend
@@ -285,8 +176,12 @@ Please try again with your complete CNIC number."""
                 "accounts_count": len(user_data["accounts"])
             })
             
-            # Return account selection message
-            return get_account_selection_message(user_data["name"], user_data["accounts"])
+            # Use AI agent for natural verification success response
+            return await ai_agent.handle_cnic_verification_success(
+                user_data["name"], 
+                user_data["accounts"], 
+                user_data["cnic"]
+            )
         
         else:
             logger.warning({
@@ -296,16 +191,8 @@ Please try again with your complete CNIC number."""
                 "reason": result.get("reason", "Unknown")
             })
             
-            return """❌ CNIC verification failed.
-
-The CNIC number you entered was not found in our system. Please check and try again.
-
-**Make sure:**
-• You've entered the correct CNIC number
-• The format is: 12345-1234567-8
-• All digits are correct
-
-Please enter your CNIC again, or contact support if you continue to have issues."""
+            # Use AI agent for natural verification failure response
+            return await ai_agent.handle_cnic_verification_failure(user_message_clean)
     
     except Exception as e:
         logger.error({
@@ -314,25 +201,29 @@ Please enter your CNIC again, or contact support if you continue to have issues.
             "error": str(e)
         })
         
-        return """I encountered a technical issue while verifying your CNIC. Please try again in a moment.
-
-If the problem persists, please contact our support team."""
+        # Use AI agent for natural error response
+        return await ai_agent.handle_error_gracefully(e, user_message_clean, "", "cnic_verification")
 
 async def handle_account_selection(sender_id: str, user_message: str) -> str:
-    """Handle account selection step."""
+    """Handle account selection step using last 4 digits and AI agent responses."""
     
     user_data = authenticated_users[sender_id]
     accounts = user_data.get("accounts", [])
+    first_name = user_data.get("name", "").split()[0]
     
-    # Check if user selected a valid account number
+    # Check if user entered 4 digits (last 4 digits of account)
     selection = user_message.strip()
     
-    if selection in ["1", "2"]:
+    if selection.isdigit() and len(selection) == 4:
         try:
-            account_index = int(selection) - 1
-            if 0 <= account_index < len(accounts):
-                selected_account = accounts[account_index]
-                
+            # Find account that ends with these 4 digits
+            selected_account = None
+            for account in accounts:
+                if account.endswith(selection):
+                    selected_account = account
+                    break
+            
+            if selected_account:
                 # Verify account selection with backend
                 async with httpx.AsyncClient() as client:
                     response = await client.post(
@@ -361,19 +252,21 @@ async def handle_account_selection(sender_id: str, user_message: str) -> str:
                         "selected_account": selected_account
                     })
                     
-                    return get_account_confirmed_message(user_data["name"], selected_account)
+                    # Use AI agent for natural account confirmation response
+                    return await ai_agent.handle_account_confirmation(selected_account, user_data["name"])
                 
                 else:
-                    return "Account selection failed. Please try again or contact support."
+                    # Use AI agent for natural error response
+                    return await ai_agent.handle_error_gracefully(
+                        Exception("Account selection failed"), 
+                        user_message, 
+                        first_name, 
+                        "account_selection"
+                    )
             
             else:
-                return f"""Please select a valid option.
-
-You have {len(accounts)} accounts available. Reply with:
-• **1** for the first account
-• **2** for the second account
-
-**Security:** Type 'exit' to end your session."""
+                # No matching account found - use AI agent for natural response
+                return await ai_agent.handle_account_selection(selection, accounts, first_name)
         
         except Exception as e:
             logger.error({
@@ -381,19 +274,11 @@ You have {len(accounts)} accounts available. Reply with:
                 "sender_id": sender_id,
                 "error": str(e)
             })
-            return "Account selection failed. Please try again."
+            return await ai_agent.handle_error_gracefully(e, user_message, first_name, "account_selection")
     
     else:
-        return f"""Please select an account by entering the number.
-
-Reply with:
-• **1** for the first account  
-• **2** for the second account
-
-Your available accounts:
-{chr(10).join([f"{i+1}. Account ***-***-{acc[-4:]}" for i, acc in enumerate(accounts)])}
-
-**Security:** Type 'exit' to end your session."""
+        # Invalid format - use AI agent for natural guidance response
+        return await ai_agent.handle_account_selection(selection, accounts, first_name)
 
 async def handle_banking_queries(sender_id: str, user_message: str) -> str:
     """Handle banking queries for fully authenticated users."""
@@ -432,7 +317,8 @@ async def handle_banking_queries(sender_id: str, user_message: str) -> str:
             "error": str(e),
             "user_message": user_message
         })
-        return f"I apologize, {first_name}, but I encountered a technical issue while processing your request. Please try again, and I'll be happy to help you!"
+        # Use AI agent for natural error response
+        return await ai_agent.handle_error_gracefully(e, user_message, first_name, "banking_query")
 
 async def call_process_query_api(user_message: str, account_number: str, first_name: str) -> str:
     """Make API call to backend process_query endpoint."""
@@ -524,9 +410,10 @@ async def health_check():
         "status": "healthy",
         "backend_connection": "healthy" if backend_healthy else "unhealthy",
         "timestamp": time.time(),
-        "service": "banking_webhook_cnic",
-        "authentication_flow": "cnic_verification_account_selection",
-        "memory_system": "langchain_conversation_buffer",
+        "service": "banking_webhook_natural_responses",
+        "authentication_flow": "cnic_verification_last_4_digits",
+        "response_system": "ai_agent_natural_language",
+        "account_selection": "last_4_digits",
         "exit_functionality": "enabled"
     }
 
