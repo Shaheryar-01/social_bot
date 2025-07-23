@@ -395,5 +395,7 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "service": "banking_ai_backend_cnic",
-        "authentication": "cnic_based_with_account_selection"
+        "authentication": "cnic_based_with_account_selection",
+        "greeting_detection": "enabled",
+        "varied_responses": "enabled"
     }

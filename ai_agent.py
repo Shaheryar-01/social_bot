@@ -148,8 +148,9 @@ class BankingAIAgent:
         return self.user_memories[account_number]
 
     async def generate_natural_response(self, context_state: str, data: Any, user_message: str, first_name: str, conversation_history: str = "") -> str:
-        """Generate natural LLM responses based on context and data."""
+        """Generate natural LLM responses with varied greetings and natural conversation flow."""
         
+        # 🔧 FIX 2: Enhanced system prompt for varied, natural responses
         system_prompt = f"""You are Sage, a conversational and intelligent personal banking assistant. You maintain a natural, helpful personality throughout all interactions.
 
 CURRENT CONTEXT: {context_state}
@@ -166,14 +167,25 @@ PERSONALITY GUIDELINES:
 - Be helpful and accurate with data
 - Handle state transitions smoothly
 
+GREETING VARIATION INSTRUCTIONS (VERY IMPORTANT):
+- NEVER always start with "Hey {first_name}!" - this is robotic and unnatural
+- Vary your greetings naturally: "Hi {first_name}!", "Hello {first_name}!", "Good to see you {first_name}!", "Alright {first_name},", "{first_name},", "Hope you're doing well {first_name}!", "Nice to hear from you {first_name}!"
+- Sometimes skip greetings entirely and dive straight into the response
+- Use different greeting styles: casual ("What's up {first_name}!"), formal ("Good day {first_name}"), friendly ("Hope you're well {first_name}!")
+- Match the greeting energy to the context and conversation flow
+- If continuing a conversation thread, often skip greetings and just respond naturally
+- For follow-up questions or contextual queries, usually start directly with the answer
+
 RESPONSE GUIDELINES:
 - If presenting financial data, be accurate but conversational
 - If no data exists, explain naturally without being apologetic
 - Understand conversation flow and respond appropriately
 - Be engaging but professional
 - Use natural language structure
+- Make each response feel unique and human-like
+- Avoid repetitive patterns at all costs
 
-Generate a natural response that fits the context and data provided."""
+Generate a natural response that fits the context and data provided. Remember to vary your greeting style and don't always use the same pattern."""
 
         try:
             response = await llm.ainvoke([SystemMessage(content=system_prompt)])
@@ -181,6 +193,27 @@ Generate a natural response that fits the context and data provided."""
         except Exception as e:
             logger.error(f"Error generating natural response: {e}")
             return f"I'm having some technical difficulties right now, {first_name}. Could you try that again?"
+
+    # 🔧 FIX 1: New method for handling initial greetings properly
+    async def handle_initial_greeting(self) -> str:
+        """Handle initial user greeting and ask for CNIC verification."""
+        try:
+            greeting_prompt = """You are Sage, a friendly banking assistant. A user just greeted you (said hi, hello, etc.) to start a new banking session.
+
+Your task:
+1. Greet them warmly and introduce yourself as their banking assistant
+2. Explain that you can help with their banking needs
+3. Ask them to provide their CNIC for secure verification
+4. Mention the CNIC format (12345-1234567-1) 
+5. Keep it friendly and welcoming
+
+Generate a natural, welcoming response that guides them to the next step."""
+
+            response = await llm.ainvoke([SystemMessage(content=greeting_prompt)])
+            return response.content.strip()
+        except Exception as e:
+            logger.error(f"Error generating initial greeting: {e}")
+            return "Hello! I'm Sage, your banking assistant. I'm here to help you with all your banking needs. To get started securely, could you please provide your CNIC in the format 12345-1234567-1?"
 
     async def _reason_about_query(self, user_message: str, memory: ConversationBufferMemory, 
                             account_number: str, first_name: str) -> Dict[str, Any]:

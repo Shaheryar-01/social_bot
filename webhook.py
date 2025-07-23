@@ -1,4 +1,4 @@
-# Updated webhook.py - Natural AI responses with last 4 digit account selection
+# Updated webhook.py - Fixed greeting flow and natural responses
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 import httpx
@@ -77,6 +77,37 @@ async def receive_message(request: Request):
 
 user_last_message_time = {}
 
+def is_greeting_message(message: str) -> bool:
+    """Check if the message is a greeting."""
+    greeting_words = [
+        "hi", "hello", "hey", "greetings", "good morning", "good afternoon", 
+        "good evening", "good day", "howdy", "what's up", "whats up", "sup",
+        "hola", "bonjour", "namaste", "salaam", "salam", "assalam", "start"
+    ]
+    
+    message_lower = message.lower().strip()
+    
+    # Check if message is exactly a greeting or starts with greeting
+    for greeting in greeting_words:
+        if message_lower == greeting or message_lower.startswith(greeting + " "):
+            return True
+    
+    # Check for common greeting patterns
+    greeting_patterns = [
+        r'^hi+$',  # hi, hii, hiii
+        r'^hey+$',  # hey, heyy
+        r'^hello+$',  # hello, helloo
+        r'^good (morning|afternoon|evening|day)',
+        r'^how are you',
+        r'^what\'?s up'
+    ]
+    
+    for pattern in greeting_patterns:
+        if re.match(pattern, message_lower):
+            return True
+    
+    return False
+
 async def process_user_message(sender_id: str, user_message: str) -> str:
     """Process user message with CNIC-based authentication flow using AI agent responses."""
     
@@ -137,11 +168,23 @@ async def process_user_message(sender_id: str, user_message: str) -> str:
         return await ai_agent.handle_session_start()
 
 async def handle_cnic_verification(sender_id: str, user_message: str) -> str:
-    """Handle CNIC verification step using AI agent responses."""
+    """Handle CNIC verification step with proper greeting detection."""
     
-    # Check if message looks like a CNIC
-    cnic_pattern = r'^\d{5}-\d{7}-\d$'
     user_message_clean = user_message.strip()
+    
+    # 🔧 FIX 1: Check if this is a greeting first, before checking CNIC format
+    if is_greeting_message(user_message_clean):
+        logger.info({
+            "action": "initial_greeting_detected",
+            "sender_id": sender_id,
+            "message": user_message_clean
+        })
+        
+        # Use AI agent for proper initial greeting and CNIC request
+        return await ai_agent.handle_initial_greeting()
+    
+    # Now check if message looks like a CNIC
+    cnic_pattern = r'^\d{5}-\d{7}-\d$'
     
     if not re.match(cnic_pattern, user_message_clean):
         # Use AI agent for natural invalid format response
@@ -414,7 +457,9 @@ async def health_check():
         "authentication_flow": "cnic_verification_last_4_digits",
         "response_system": "ai_agent_natural_language",
         "account_selection": "last_4_digits",
-        "exit_functionality": "enabled"
+        "exit_functionality": "enabled",
+        "greeting_detection": "enabled",
+        "varied_responses": "enabled"
     }
 
 if __name__ == "__main__":
